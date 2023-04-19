@@ -1,44 +1,36 @@
 import i18next from 'i18next';
 import resources from './locales/index';
-
-const generateFormControl = (fieldType, fieldName, fieldText) => {
-  const divEl = document.createElement('div');
-  const labelEl = document.createElement('label');
-  const inputEl = document.createElement('input');
-
-  divEl.classList.add('mb-3');
-  labelEl.classList.add('form-label');
-  inputEl.classList.add('form-control');
-
-  labelEl.htmlFor = fieldName;
-  inputEl.id = fieldName;
-  inputEl.type = fieldType;
-
-  labelEl.textContent = fieldText;
-
-  divEl.append(labelEl);
-  divEl.append(inputEl);
-
-  return divEl;
-};
-
-const render = (container, i18n) => {
-  const username = generateFormControl('text', 'username', i18n.t('username'));
-  container.append(username);
-  const password = generateFormControl('password', 'password', i18n.t('password'));
-  container.append(password);
-  const confirmPassword = generateFormControl('password', 'password', i18n.t('confirmPassword'));
-  container.append(confirmPassword);
-  const button = document.createElement('button');
-  button.type = 'submit';
-  button.classList.add('btn', 'btn-primary');
-  button.textContent = i18n.t('signupBtn');
-  container.append(button);
-}
+import * as yup from 'yup';
+import watch from './view'
 
 export default async () => {
-  const container = document.querySelector('#form');
+  const elements = {
+    form: document.querySelector('#form'),
+    fields: {},
+    errorFields: {},
+  }
+
   const defaultLang = 'ru';
+
+  const state = {
+    form: {
+      status: null,
+      valid: false,
+      errors: [],
+    }
+  };
+
+  yup.setLocale({
+    mixed: {
+      required: () => ({ key: 'errors.validation.required' }),
+      oneOf: () => ({ key: 'errors.validation.confirmPassword' }),
+    },
+    string: {
+      min: ({ min }) => ({ key: 'errors.validation.min', values: { count: min } }),
+      max: ({ max }) => ({ key: 'errors.validation.max', values: { count: max } }),
+    },
+  });
+
   const i18n = i18next.createInstance();
   await i18n.init({
     lng: defaultLang,
@@ -46,5 +38,30 @@ export default async () => {
     resources,
   });
 
-  render(container, i18n);
+  const watchedState = watch(elements, i18n, state)
+  watchedState.form.status = 'filling'
+
+  const schema = yup.object({
+    username: yup.string().required().min(3).max(10),
+    password: yup.string().required().min(6).max(12),
+    confirmPassword: yup.string().required().oneOf([yup.ref('password')])
+  });
+
+  elements.form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const newUser = Object.fromEntries(formData);
+    try {
+      await schema.validate(newUser, { abortEarly: false });
+      watchedState.form.errors = [];
+      watchedState.form.valid = true;
+    } catch (err) {
+      console.log('err:', err);
+      const validationErrors = err.inner.reduce((acc, cur, idx) => {
+        const { path, message } = cur
+        return { ...acc, [path]: [...acc[path] || [], message] };
+      }, {});
+      watchedState.form.errors = validationErrors;
+    }
+  })
 };
